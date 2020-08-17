@@ -25,9 +25,105 @@ import java.util.Map;
 
 @Plugin(type = MastodonPlugin.class)
 public class BlenderConnectPlugin implements MastodonPlugin {
-    private static final String ACTION_1 = "[BlenderConnectPlugin] action1";
+    private static final String ACTION_1 = "[[juglab]] Connect to Blender";
+    private static final String ACTION_2 = "[[juglab]] Disconnect from Blender";
 
-    private static final String[] ACTION_1_KEYS = new String[]{"meta K"};
+    private static final String[] ACTION_1_KEYS = new String[]{"not mapped" };
+    private static final String[] ACTION_2_KEYS = new String[]{"not mapped" };
+    private static Map<String, String> menuTexts = new HashMap<>();
+
+    static {
+        menuTexts.put(ACTION_1, "Connect to Blender");
+        menuTexts.put(ACTION_2, "Disconnect from Blender");
+    }
+
+    private final AbstractNamedAction action1 = new AbstractNamedAction(ACTION_1) {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public void actionPerformed(final ActionEvent e) {
+            server = new GatewayServer();
+            server.start();
+            System.out.println("Gateway Server for py4j started.");
+            Runtime.getRuntime().addShutdownHook(new Thread()
+            {
+                public void run()
+                {
+                    server.shutdown();
+                    System.out.println("Gateway Server for py4j stopped.");
+                }
+            });
+        }
+    };
+
+    private final AbstractNamedAction action2 = new AbstractNamedAction(ACTION_2) {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public void actionPerformed(final ActionEvent e) {
+            server.shutdown();
+            System.out.println("Gateway Server for py4j stopped.");
+        }
+    };
+    @SuppressWarnings("unused")
+    private MastodonPluginAppModel appModel;
+    private GatewayServer server;
+
+    @Override
+    public List<ViewMenuBuilder.MenuItem> getMenuItems() {
+        return Arrays.asList(
+                MamutMenuBuilder.menu("Plugins",
+                        MamutMenuBuilder.menu("Jug lab",
+                                MamutMenuBuilder.item(ACTION_1), MamutMenuBuilder.item(ACTION_2))));
+    }
+
+    @Override
+    public Map<String, String> getMenuTexts() {
+        return menuTexts;
+    }
+
+    @Override
+    public void installGlobalActions(final Actions actions) {
+        actions.namedAction(action1, ACTION_1_KEYS);
+        actions.namedAction(action2, ACTION_2_KEYS);
+    }
+
+    @Override
+    public void setAppModel(final MastodonPluginAppModel appModel) {
+
+        this.appModel = appModel;
+        GatewayServer.turnLoggingOff();
+
+
+
+        final SelectionModel<Spot, Link> selectionModel = appModel.getAppModel().getSelectionModel();
+        selectionModel.listeners().add(() -> listenForSelection(appModel));
+    }
+
+    private void listenForSelection(MastodonPluginAppModel appModel) {
+        final SelectionModel<Spot, Link> selectionModel = appModel.getAppModel().getSelectionModel();
+
+        if(server != null){
+            VertexPy4JDTO transfer = (VertexPy4JDTO) server.getPythonServerEntryPoint(new Class[] { VertexPy4JDTO.class });
+
+            final GraphIdBimap<Spot, Link> graphIdBimap = appModel.getAppModel().getModel().getGraphIdBimap();
+            selectionModel.getSelectedVertices().forEach(selectedVertex -> {
+                final int id = graphIdBimap.getVertexId(selectedVertex);
+                final String label = selectedVertex.getLabel();
+                System.out.println("Selected vertex:" + id + " : " + label);
+
+                try {
+                    transfer.sendId(id);
+                    transfer.sendIdLabel(id, label);
+                } catch (Exception e) {
+                    System.out.println(e.getMessage());
+                    System.out.println("Please reconnect the Py4J Gateway Server through the Plugin Menu");
+                }
+
+            });
+        }
+
+    }
 
     /*
      * Command descriptions for all provided commands
@@ -40,80 +136,9 @@ public class BlenderConnectPlugin implements MastodonPlugin {
 
         @Override
         public void getCommandDescriptions(final CommandDescriptions descriptions) {
-            descriptions.add(ACTION_1, ACTION_1_KEYS, "Blender Connect Plugin Action");
+            descriptions.add(ACTION_1, ACTION_1_KEYS, "Starts the Py4J Gateway Server to connect to Blender");
+            descriptions.add(ACTION_2, ACTION_2_KEYS, "Stops the Py4J Gateway Server.");
         }
-    }
-
-    @SuppressWarnings("unused")
-    private MastodonPluginAppModel appModel;
-
-    private static Map<String, String> menuTexts = new HashMap<>();
-
-    static {
-        menuTexts.put(ACTION_1, "Test Action");
-    }
-
-    private final AbstractNamedAction action1 = new AbstractNamedAction(ACTION_1) {
-        private static final long serialVersionUID = 1L;
-
-        @Override
-        public void actionPerformed(final ActionEvent e) {
-            System.out.println("BlenderConnectPlugin.action1.actionPerformed");
-        }
-    };
-
-    @Override
-    public List<ViewMenuBuilder.MenuItem> getMenuItems() {
-        return Arrays.asList(
-                MamutMenuBuilder.menu("Plugins",
-                        MamutMenuBuilder.item(ACTION_1)));
-    }
-
-    @Override
-    public Map<String, String> getMenuTexts() {
-        return menuTexts;
-    }
-
-    @Override
-    public void installGlobalActions(final Actions actions) {
-        actions.namedAction(action1, ACTION_1_KEYS);
-    }
-
-    @Override
-    public void setAppModel(final MastodonPluginAppModel appModel) {
-
-        this.appModel = appModel;
-        GatewayServer.turnLoggingOff();
-        GatewayServer server = new GatewayServer();
-        server.start();
-        final SelectionModel<Spot, Link> selectionModel = appModel.getAppModel().getSelectionModel();
-        selectionModel.listeners().add(() -> listenForSelection(appModel, server));
-        final Spot someSpot = appModel.getAppModel().getModel().getSpatioTemporalIndex().iterator().next();
-        selectionModel.setSelected(someSpot, true);
-    }
-
-    private void listenForSelection(MastodonPluginAppModel appModel, GatewayServer server) {
-        appModel.getAppModel().getModel().getGraph().vertices().forEach(spot -> {
-            final SelectionModel<Spot, Link> selectionModel = appModel.getAppModel().getSelectionModel();
-
-            VertexPy4JDTO transfer = (VertexPy4JDTO) server.getPythonServerEntryPoint(new Class[] { VertexPy4JDTO.class });
-
-            final GraphIdBimap<Spot, Link> graphIdBimap = appModel.getAppModel().getModel().getGraphIdBimap();
-            selectionModel.getSelectedVertices().forEach(selectedVertex -> {
-                final int id = graphIdBimap.getVertexId(selectedVertex);
-                final String label = selectedVertex.getLabel();
-                System.out.println("Selected vertex:" + id + " : " + label);
-
-                 try {
-                    transfer.sendId(id);
-                    transfer.sendIdLabel(id, label);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-
-            });
-        });
     }
 
 }
-
